@@ -1,4 +1,4 @@
-### **[HWiNFO Timed Restart](https://github.com/ReaLx3m/AutoHotKey-Scripts/blob/main/HWiNFO%20Timed%20Restart.ahk)**
+### **[HWiNFO Auto Restart](https://github.com/ReaLx3m/AutoHotKey-Scripts/blob/main/HWiNFO%20Auto%20Restart.ahk)**
 
 I like to restart my HWInfo app every 11 hours and 58 minutes, im just autistic like that, no other reason.
 
