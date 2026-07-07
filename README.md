@@ -9,7 +9,7 @@ Some people say functionality like this helps them defeat the 12 hour "Shared Me
 ### **[HWiNFO Manager](https://github.com/ReaLx3m/AutoHotKey-Scripts/blob/main/HWiNFO%20Manager.ahk)**
 
 - Save Profile feature saves your current HWiNFO registry key saving your settings for: Sensor panel layout, Polling/update interval and units, OSD (on-screen display) settings, Gadget settings, Logging settings, Alarm/threshold settings, Custom sensor definitions, Window position/size and general UI preferences(main window layout, docking, etc.), Remote/shared memory settings.
-- Load profile erases the whole HWiNFO64/32 registry key(where the settings are kept) and imports the key related to the profile entry you selected to load. Must be done this way, as if key related to profile is simply imported it will be additive to previous entries and setting from the previous key will remain. Theres a guard for the registry key delete function to only accept HWiNFO32 or HWiNFO64 as arguments.
+- Load profile erases the whole HWiNFO64/32 registry key(where the settings are kept) and imports the key related to the profile entry you selected to load. Must be done this way, as if key related to profile is simply imported it will be additive to previous entries and setting from the previous key will remain. Theres a guard implemented for the registry key delete function to only accept HWiNFO32 or HWiNFO64 as arguments.
 - Auto restart script is merged too, but with user exposed settings.
 - HWiNfo watchdog added that will restart the app in case of a crash, you can select auto start or have it ask before it restarts it.
 
