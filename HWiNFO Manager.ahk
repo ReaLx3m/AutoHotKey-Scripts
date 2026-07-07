@@ -819,7 +819,23 @@ SaveNewProfile(*) {
     regFile  := profilesDir "\" fileName
     regKey   := "HKCU\Software\" regChoice.Text
 
+    ; HWiNFO only flushes its live/in-memory settings to the registry when
+    ; it closes - exporting while it's still running can miss changes made
+    ; during the current session. Close it first, export, then relaunch it
+    ; (if it was actually running) so you're not left without HWiNFO up.
+    wasRunning := ProcessExist(exeName) ? true : false
+    if wasRunning {
+        SetStatus("Closing HWiNFO to flush settings to the registry...")
+        CloseAppGracefully(exeName)
+    }
+
     ok := ExportRegKey(regKey, regFile)
+
+    if wasRunning {
+        SetStatus("Restarting HWiNFO...")
+        HWiNFOStart()
+    }
+
     if !ok {
         SetStatus("Export failed. Is the registry key correct?")
         return
@@ -845,7 +861,23 @@ UpdateSelectedProfile(*) {
     if result != "Yes"
         return
 
+    ; HWiNFO only flushes its live/in-memory settings to the registry when
+    ; it closes - exporting while it's still running can miss changes made
+    ; during the current session. Close it first, export, then relaunch it
+    ; (if it was actually running) so you're not left without HWiNFO up.
+    wasRunning := ProcessExist(exeName) ? true : false
+    if wasRunning {
+        SetStatus("Closing HWiNFO to flush settings to the registry...")
+        CloseAppGracefully(exeName)
+    }
+
     ok := ExportRegKey(regKey, regFile)
+
+    if wasRunning {
+        SetStatus("Restarting HWiNFO...")
+        HWiNFOStart()
+    }
+
     if ok
         SetStatus("Profile '" name "' updated.")
     else
