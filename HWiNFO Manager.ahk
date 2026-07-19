@@ -103,6 +103,22 @@ if trayIconFile != "" {
     }
 }
 
+; Re-apply the tray icon if Explorer (re)starts or wasn't fully ready when
+; this script first set it - this happens most often when launched via the
+; Task Scheduler "at logon" task before the notification area has finished
+; initializing, which can silently drop the icon even though the script
+; keeps running fine in the background.
+OnMessage(DllCall("RegisterWindowMessage", "Str", "TaskbarCreated", "UInt"), RestoreTrayIcon)
+
+RestoreTrayIcon(*) {
+    global trayIconFile, trayIconIndex
+    if trayIconFile != "" {
+        resolvedTrayIcon := ResolveIconFile(trayIconFile)
+        if FileExist(resolvedTrayIcon)
+            try TraySetIcon(resolvedTrayIcon, Integer(trayIconIndex))
+    }
+}
+
 A_TrayMenu.Delete()
 A_TrayMenu.Add("Open Profile Manager", (*) => ShowMainGui())
 A_TrayMenu.Add()  ; separator
@@ -501,6 +517,13 @@ SetRunAtStartup(enable) {
             psContent := "$action = New-ScheduledTaskAction -Execute '" PSQuote(execPath) "' -Argument '" PSQuote(execArg) "'`n"
 
         psContent .= "$trigger = New-ScheduledTaskTrigger -AtLogOn`n"
+        ; Explorer's notification area isn't always ready the instant the
+        ; "at logon" trigger fires - launching immediately can mean the tray
+        ; icon call succeeds but Windows silently drops it since the tray
+        ; host isn't up yet. A short delay avoids that race. (Combined with
+        ; the TaskbarCreated handler above, which re-adds the icon if
+        ; Explorer restarts later too.)
+        psContent .= "$trigger.Delay = 'PT15S'`n"
         psContent .= "$principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -RunLevel Highest -LogonType Interactive`n"
         ; -AllowStartIfOnBatteries and -DontStopIfGoingOnBatteries turn off
         ; the two Conditions-tab settings that would otherwise block this
