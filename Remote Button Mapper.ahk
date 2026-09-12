@@ -1,4 +1,4 @@
-﻿#Requires AutoHotkey v2.0
+#Requires AutoHotkey v2.0
 #SingleInstance Force
 Persistent
 
@@ -10,6 +10,12 @@ Persistent
 ;    Double-click the tray icon to bring the window back.
 ;  - Mappings are saved to remote_mappings.ini next to the script
 ;    and reloaded (and re-armed) automatically on next launch.
+;  - Scancode-based mappings can be set to fire on a LONG press (button
+;    held) instead of a short press, so a single physical button can
+;    have one mapping for a tap and a different one for a hold. The
+;    hold duration is a single global setting (Long press threshold, ms).
+;    Raw HID mappings don't support this - see comments near
+;    FireButtonMappings() for why.
 ; ============================================================
 
 mapFile := A_ScriptDir "\remote_mappings.ini"
@@ -35,6 +41,14 @@ targetSendString := ""
 kodiPassthroughEnabled := false
 kodiProcessName := "kodi.exe"
 kodiWasRunning := true
+
+; Long-press detection (scancode mappings only - see FireButtonMappings).
+; longPressMs is the single global setting: hold a button longer than this
+; and, on release, the button's "long" mapping(s) fire instead of its
+; "short" one(s). buttonPressState tracks the in-progress press for each
+; scancode button key ("SCxxx") -> {pressed, token, downTick, longFired}.
+longPressMs := 500
+buttonPressState := Map()
 
 ; State for capturing raw HID events (buttons Capture can't see) directly
 ; from the main window, as an alternative to scancode-based capture.
@@ -69,7 +83,7 @@ g := Gui("", "Remote Button Mapper")
 g.OnEvent("Close", (*) => g.Hide())
 g.SetFont("s10", "Segoe UI")
 
-g.Add("GroupBox", "x8 y10 w572 h286", "Learn a button")
+g.Add("GroupBox", "x8 y10 w572 h310", "Learn a button")
 g.Add("Text", "x20 y30", "1. Click Capture, then press the remote button:")
 btnCapture := g.Add("Button", "x+10 yp-4 w100", "Capture")
 btnCapture.OnEvent("Click", StartCapture)
@@ -98,6 +112,8 @@ editAppArgs := g.Add("Edit", "x+10 w330")
 
 chkMappingKodiPassthrough := g.Add("Checkbox", "x20 y+10", "Passthrough THIS button when Kodi isn't running")
 
+chkMappingLongPress := g.Add("Checkbox", "x20 y+8", "Fire on LONG press(doesnt apply to raw HID captures)")
+
 btnAddNew := g.Add("Button", "x20 y+18 w110", "Add Mapping")
 btnAddNew.OnEvent("Click", (*) => SaveMapping(true))
 btnUpdate := g.Add("Button", "x+8 w110", "Update Mapping")
@@ -107,12 +123,13 @@ btnTest.OnEvent("Click", TestSend)
 btnClearForm := g.Add("Button", "x+8 w70", "Clear")
 btnClearForm.OnEvent("Click", (*) => ResetCaptureUI())
 
-lv := g.Add("ListView", "x20 y+18 w560 h220", ["On", "Remote Button", "Sends", "KP"])
+lv := g.Add("ListView", "x20 y+18 w560 h220", ["On", "Remote Button", "Sends", "KP", "Press"])
 lv.OnEvent("ItemSelect", LVSelect)
 lv.ModifyCol(1, 35)
-lv.ModifyCol(2, 205)
-lv.ModifyCol(3, 250)
+lv.ModifyCol(2, 165)
+lv.ModifyCol(3, 220)
 lv.ModifyCol(4, 40)
+lv.ModifyCol(5, 55)
 
 btnToggle := g.Add("Button", "x20 y+10 w130", "Enable/Disable")
 btnToggle.OnEvent("Click", ToggleSelected)
@@ -129,6 +146,10 @@ chkMaster := g.Add("Checkbox", "x20 y+8", "Remapping enabled")
 chkMaster.OnEvent("Click", (*) => SetMasterEnabled(chkMaster.Value))
 chkKodiPassthrough := g.Add("Checkbox", "x20 y+8", "Passthrough buttons when Kodi isn't running")
 chkKodiPassthrough.OnEvent("Click", (*) => SetKodiPassthroughEnabled(chkKodiPassthrough.Value))
+
+g.Add("Text", "x20 y+12", "Long press threshold (ms):")
+edLongPressMs := g.Add("Edit", "x+10 w70", String(longPressMs))
+edLongPressMs.OnEvent("Change", (*) => OnLongPressMsChange())
 
 txtStatus := g.Add("Text", "x20 y+15 w560", "Ready.")
 
@@ -687,7 +708,7 @@ SaveMapping(isNew) {
         desc := editDesc.Value != "" ? editDesc.Value : Format("Raw 0x{:X} {} ({})", capturedRawPage, capturedRawBytesHex, id)
         if !mappings.Has(id)
             mapOrder.Push(id)
-        mappings[id] := {kind: "raw", actionType: actionType, page: capturedRawPage, bytesHex: capturedRawBytesHex, desc: desc, target: target, appArgs: appArgs, enabled: prevEnabled, kodiPassthrough: !!chkMappingKodiPassthrough.Value}
+        mappings[id] := {kind: "raw", actionType: actionType, page: capturedRawPage, bytesHex: capturedRawBytesHex, desc: desc, target: target, appArgs: appArgs, enabled: prevEnabled, kodiPassthrough: !!chkMappingKodiPassthrough.Value, pressType: "short"}
     } else {
         if !capturedSC {
             MsgBox("Capture a button first.", "Missing input", "Icon!")
@@ -710,7 +731,7 @@ SaveMapping(isNew) {
         desc := editDesc.Value != "" ? editDesc.Value : id
         if !mappings.Has(id)
             mapOrder.Push(id)
-        mappings[id] := {kind: "sc", actionType: actionType, sc: capturedSC, desc: desc, target: target, appArgs: appArgs, enabled: prevEnabled, kodiPassthrough: !!chkMappingKodiPassthrough.Value}
+        mappings[id] := {kind: "sc", actionType: actionType, sc: capturedSC, desc: desc, target: target, appArgs: appArgs, enabled: prevEnabled, kodiPassthrough: !!chkMappingKodiPassthrough.Value, pressType: chkMappingLongPress.Value ? "long" : "short"}
         RegisterHotkeyForButton(buttonKey)
         if oldButtonKey != ""
             RegisterHotkeyForButton(oldButtonKey)
@@ -752,16 +773,71 @@ RegisterHotkeyForButton(buttonKey) {
     }
     state := (masterEnabled && hasFiring) ? "On" : "Off"
     try {
-        Hotkey(buttonKey, (*) => SendTarget(buttonKey), state)
+        Hotkey(buttonKey, (*) => OnButtonDown(buttonKey), state)
+        Hotkey(buttonKey " Up", (*) => OnButtonUp(buttonKey), state)
     } catch as e {
         MsgBox("Could not register hotkey for " buttonKey ":`n" e.Message, "Error", "Icon!")
     }
 }
 
-; Fires every enabled scancode mapping attached to this button, except ones
-; individually flagged for Kodi passthrough while Kodi isn't running (those
-; are left unsent for this press rather than remapped).
-SendTarget(buttonKey) {
+; ---------------- Long-press timing (scancode buttons) ----------------
+; A physical hold on most remotes/keyboards arrives as one Down, then
+; either OS/driver auto-repeat Downs while held, then a final Up when
+; released - or (rarer) just Down then Up with nothing in between. Both
+; are handled the same way: the FIRST Down of a press starts a one-shot
+; timer for longPressMs; further Downs before the matching Up are treated
+; as repeats of the same hold and don't restart the timer. If the timer
+; elapses while still held, the button's "long" mapping(s) fire immediately
+; and the eventual Up is a no-op. If Up arrives first, the button's
+; "short" mapping(s) fire instead. A per-press token guards against a
+; stale timer from an earlier press firing after a new press has begun.
+OnButtonDown(buttonKey) {
+    global buttonPressState, longPressMs
+    st := buttonPressState.Has(buttonKey) ? buttonPressState[buttonKey] : ""
+    if st && st.pressed
+        return   ; auto-repeat while already held - same gesture, don't restart the timer
+    token := (st ? st.token : 0) + 1
+    buttonPressState[buttonKey] := {pressed: true, token: token, longFired: false}
+    SetTimer(() => CheckLongPress(buttonKey, token), -Max(1, longPressMs))
+}
+
+CheckLongPress(buttonKey, token) {
+    global buttonPressState
+    if !buttonPressState.Has(buttonKey)
+        return
+    st := buttonPressState[buttonKey]
+    if st.token != token || !st.pressed || st.longFired
+        return   ; released already, or superseded by a newer press
+    st.longFired := true
+    FireButtonMappings(buttonKey, "long")
+}
+
+OnButtonUp(buttonKey) {
+    global buttonPressState
+    if !buttonPressState.Has(buttonKey)
+        return
+    st := buttonPressState[buttonKey]
+    if !st.pressed
+        return
+    st.pressed := false
+    if !st.longFired
+        FireButtonMappings(buttonKey, "short")
+}
+
+; Fires every enabled scancode mapping attached to this button whose
+; pressType matches ("short"/"long"), except ones individually flagged for
+; Kodi passthrough while Kodi isn't running (those are left unsent for this
+; press rather than remapped). Mappings created before this feature existed
+; have no stored pressType and default to "short", so they behave exactly
+; as before.
+;
+; Raw HID mappings aren't included here (or given a pressType option in the
+; UI): type-1 raw keyboard reports are only read on key-down (see
+; OnRawInput's "if flags & 1 return"), and generic type-2 HID reports are
+; typically single momentary reports from the remote with no separate
+; press/release pair to time in the first place - so there's nothing
+; reliable here to measure a hold against.
+FireButtonMappings(buttonKey, pressType) {
     global kodiPassthroughEnabled
     kodiBlocks := kodiPassthroughEnabled && !IsKodiRunning()
     for id in mapOrder {
@@ -769,6 +845,9 @@ SendTarget(buttonKey) {
         if (m.HasOwnProp("kind") ? m.kind : "sc") != "sc"
             continue
         if Format("SC{:03X}", m.sc) != buttonKey || !m.enabled
+            continue
+        mPressType := m.HasOwnProp("pressType") ? m.pressType : "short"
+        if mPressType != pressType
             continue
         mappingBlocked := kodiBlocks && (m.HasOwnProp("kodiPassthrough") ? m.kodiPassthrough : false)
         if !mappingBlocked
@@ -814,6 +893,7 @@ ResetCaptureUI() {
     ddlActionType.Choose(1)
     OnActionTypeChange()
     chkMappingKodiPassthrough.Value := false
+    chkMappingLongPress.Value := false
     txtCaptureStatus.Value := "Not captured yet."
 }
 
@@ -830,7 +910,8 @@ RefreshList() {
             sendsDisplay := m.target
         }
         kp := (m.HasOwnProp("kodiPassthrough") ? m.kodiPassthrough : false) ? "Yes" : "No"
-        lv.Add(, m.enabled ? "Yes" : "No", m.desc, sendsDisplay, kp)
+        pressDisplay := (m.HasOwnProp("pressType") ? m.pressType : "short") = "long" ? "Long" : "Short"
+        lv.Add(, m.enabled ? "Yes" : "No", m.desc, sendsDisplay, kp, pressDisplay)
     }
 }
 
@@ -845,6 +926,7 @@ LVSelect(lvObj, rowNum, selected) {
     editingId := key
     ApplyActionFieldsFromMapping(m)
     chkMappingKodiPassthrough.Value := m.HasOwnProp("kodiPassthrough") ? m.kodiPassthrough : false
+    chkMappingLongPress.Value := (m.HasOwnProp("pressType") ? m.pressType : "short") = "long"
     if (m.HasOwnProp("kind") ? m.kind : "sc") = "raw" {
         capturedSC := 0
         capturedRawPage := m.page
@@ -1027,6 +1109,22 @@ ToggleStartHiddenFromTray(*) {
     SetStartHidden(!startHidden)
 }
 
+; ---------------- Long-press threshold setting ----------------
+; Validates as the user types; ignores anything that isn't a positive
+; integer yet (e.g. mid-edit/blank) rather than fighting their typing.
+; A small floor keeps a stray "0" from making every press register as long.
+OnLongPressMsChange() {
+    global longPressMs
+    val := edLongPressMs.Value
+    if !IsInteger(val)
+        return
+    n := Integer(val)
+    if n < 50
+        n := 50
+    longPressMs := n
+    SaveMappings()
+}
+
 ; ---------------- Test ----------------
 TestSend(*) {
     if ddlActionType.Value = 2 {
@@ -1054,6 +1152,7 @@ SaveMappings() {
     IniWrite(masterEnabled ? "1" : "0", mapFile, "Settings", "MasterEnabled")
     IniWrite(startHidden ? "1" : "0", mapFile, "Settings", "StartHidden")
     IniWrite(kodiPassthroughEnabled ? "1" : "0", mapFile, "Settings", "KodiPassthroughEnabled")
+    IniWrite(longPressMs, mapFile, "Settings", "LongPressMs")
     for key in mapOrder {
         m := mappings[key]
         kind := m.HasOwnProp("kind") ? m.kind : "sc"
@@ -1065,6 +1164,7 @@ SaveMappings() {
         IniWrite(m.HasOwnProp("appArgs") ? m.appArgs : "", mapFile, key, "AppArgs")
         IniWrite(m.enabled ? "1" : "0", mapFile, key, "Enabled")
         IniWrite((m.HasOwnProp("kodiPassthrough") ? m.kodiPassthrough : false) ? "1" : "0", mapFile, key, "KodiPassthrough")
+        IniWrite(m.HasOwnProp("pressType") ? m.pressType : "short", mapFile, key, "PressType")
         if kind = "raw" {
             IniWrite(m.page, mapFile, key, "Page")
             IniWrite(m.bytesHex, mapFile, key, "BytesHex")
@@ -1077,12 +1177,13 @@ SaveMappings() {
 }
 
 LoadMappings() {
-    global masterEnabled, mappings, mapOrder, startHidden, kodiPassthroughEnabled
+    global masterEnabled, mappings, mapOrder, startHidden, kodiPassthroughEnabled, longPressMs
     if !FileExist(mapFile)
         return
     masterEnabled := IniRead(mapFile, "Settings", "MasterEnabled", "1") = "1"
     kodiPassthroughEnabled := IniRead(mapFile, "Settings", "KodiPassthroughEnabled", "0") = "1"
     startHidden := IniRead(mapFile, "Settings", "StartHidden", "0") = "1"
+    longPressMs := Integer(IniRead(mapFile, "Settings", "LongPressMs", "500"))
     sections := IniRead(mapFile)
     for section in StrSplit(sections, "`n", "`r") {
         if section = "" || section = "Settings"
@@ -1094,12 +1195,13 @@ LoadMappings() {
         appArgs := IniRead(mapFile, section, "AppArgs", "")
         enabled := IniRead(mapFile, section, "Enabled", "1") = "1"
         kodiPassthrough := IniRead(mapFile, section, "KodiPassthrough", "0") = "1"
+        pressType := IniRead(mapFile, section, "PressType", "short")
         if target = ""
             continue
         if kind = "raw" {
             page := Integer(IniRead(mapFile, section, "Page", "0"))
             bytesHex := IniRead(mapFile, section, "BytesHex", "")
-            mappings[section] := {kind: "raw", actionType: actionType, page: page, bytesHex: bytesHex, desc: desc, target: target, appArgs: appArgs, enabled: enabled, kodiPassthrough: kodiPassthrough}
+            mappings[section] := {kind: "raw", actionType: actionType, page: page, bytesHex: bytesHex, desc: desc, target: target, appArgs: appArgs, enabled: enabled, kodiPassthrough: kodiPassthrough, pressType: "short"}
             mapOrder.Push(section)
         } else {
             ; Prefer the explicitly-stored ScHex (needed for ids like "SC01E#2").
@@ -1114,7 +1216,7 @@ LoadMappings() {
                 scHexStr := SubStr(base, 3)
             }
             sc := Integer("0x" scHexStr)
-            mappings[section] := {kind: "sc", actionType: actionType, sc: sc, desc: desc, target: target, appArgs: appArgs, enabled: enabled, kodiPassthrough: kodiPassthrough}
+            mappings[section] := {kind: "sc", actionType: actionType, sc: sc, desc: desc, target: target, appArgs: appArgs, enabled: enabled, kodiPassthrough: kodiPassthrough, pressType: pressType}
             mapOrder.Push(section)
             RegisterHotkeyForButton(Format("SC{:03X}", sc))
         }
@@ -1134,12 +1236,14 @@ LoadMappings() {
         A_TrayMenu.Check("Passthrough Buttons When Kodi Isn't Running")
     else
         A_TrayMenu.Uncheck("Passthrough Buttons When Kodi Isn't Running")
+    edLongPressMs.Value := longPressMs
 }
 
 ; ---------------- Startup ----------------
 chkMaster.Value := masterEnabled
 chkStartHidden.Value := startHidden
 chkKodiPassthrough.Value := kodiPassthroughEnabled
+edLongPressMs.Value := longPressMs
 LoadMappings()
 kodiWasRunning := IsKodiRunning()   ; establish baseline so the first poll doesn't false-trigger a refresh
 RegisterAllRawInputDevices()   ; enables raw-report mappings to fire even with no ini yet
