@@ -1,4 +1,4 @@
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/Y0F226ZBQV)
+<a href='https://ko-fi.com/Y0F226ZBQV' target='_blank'><img height='36' style='border:0px;height:36px;' src='https://storage.ko-fi.com/cdn/kofi6.png?v=6' border='0' alt='Buy Me a Coffee at ko-fi.com' /></a>
 
 ## **All scripts require installed AHK v2 to run. Or you can use the scripts converted to executable from the **[Releases](https://github.com/ReaLx3m/AutoHotKey-Scripts/releases)** page**
 
