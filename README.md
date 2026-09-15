@@ -10,7 +10,7 @@ If you need a keyboard, remote, mouse button mapped/re-mapped, you want this.
 
 In short:
 
-- Uses 5MB of RAM, mostly 0% CPU load with scary spikes of 0.1–0.2% about 5–6 times a minute.
+- Uses 5MB of RAM, mostly 0% CPU load with scary spikes of 0.1-0.2% about 5–6 times a minute.
    <img width="720" height="720" alt="Memory Footprint" src="https://github.com/ReaLx3m/AutoHotKey-Scripts/blob/main/images/MF%20Button%20Mapper/1.Memory%20Footprint.jpg" />
 
 - Ability to remap all standard keys that Windows recognizes.
