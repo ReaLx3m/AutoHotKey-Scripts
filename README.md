@@ -17,7 +17,7 @@ In short:
 
 - Ability to map keys that Windows doesn't recognize using the Raw HID Capture function, for example buttons from an Android remote, remapping the FN key on a standard keyboard etc.
 
-- Ability to remap mouse buttons (via the Raw HID sniffer function). For mice with more than 5 buttons (the standard 3 plus 2 side buttons), it seems there's no standard way (not even with raw HID) to detect all of them, manufacturer software is required. But this limitation can be worked around if the mouse has onboard memory. In onboard memory, all the extra buttons can be mapped to F13–F24(G Hub offers this as an option, not sure about other brands), and after that they can be mapped in this app without any problem.
+- Ability to remap mouse buttons (via the Raw HID sniffer function). For mice with more than 5 buttons (the standard 3 plus 2 side buttons), it seems there's no standard way (not even with raw HID) to detect all of them, manufacturer software is required. But this limitation can be worked around if the mouse has onboard memory. In onboard memory, all the extra buttons can be mapped to F13-F24(G Hub offers this as an option, not sure about other brands), and after that they can be mapped in this app without any problem.
 
    <img width="460" height="720" alt="HID Sniffer" src="https://github.com/ReaLx3m/AutoHotKey-Scripts/blob/main/images/MF%20Button%20Mapper/9.%20HID%20Sniffer.jpg" />
    <img width="460" height="720" alt="Map raw hid" src="https://github.com/ReaLx3m/AutoHotKey-Scripts/blob/main/images/MF%20Button%20Mapper/10.%20Map%20raw%20HID.jpg" />
